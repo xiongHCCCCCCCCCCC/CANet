@@ -196,21 +196,19 @@ def train():
             local_count += image.data.shape[0]  #local_count 记录图片数量
             global_step += 1 # 记录 batch数量
 
+
+
             if global_step % args.print_freq == 0 or global_step == 1:
 
                 time_inter = time.time() - end_time
                 count_inter = local_count - last_count
-                print_log(global_step, epoch, local_count, count_inter,
-                          num_train, loss, time_inter)
+
+                print_log(global_step, epoch, local_count, count_inter, num_train, loss, time_inter)
+
                 end_time = time.time()
-
-                '''
-                    writer tain info
-                '''
-
                 last_count = local_count
 
-                save_ckpt(args.ckpt_dir, model, optimizer, global_step, epoch, 0, num_train)
+        save_ckpt(args.ckpt_dir, model, optimizer, global_step, epoch, 0, num_train)
 
     print("Training completed ")
 
