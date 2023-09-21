@@ -96,6 +96,9 @@ class ACNet(nn.Module):
         self.final_deconv = nn.ConvTranspose2d(self.inplanes, num_class, kernel_size=2,
                                                stride=2, padding=0, bias=True)
 
+        self.final_deconv1 = nn.ConvTranspose2d(self.inplanes, 1, kernel_size=2,
+                                               stride=2, padding=0, bias=True)
+
         self.out5_conv = nn.Conv2d(256, num_class, kernel_size=1, stride=1, bias=True)
         self.out4_conv = nn.Conv2d(128, num_class, kernel_size=1, stride=1, bias=True)
         self.out3_conv = nn.Conv2d(64, num_class, kernel_size=1, stride=1, bias=True)
@@ -215,7 +218,6 @@ class ACNet(nn.Module):
         # upsample 1
         x = self.deconv1(agant4) #(6, 256, 20, 76)
 
-
         if self.training:
             out5 = self.out5_conv(x) #(6, 40, 20, 76)
         x = x + self.agant3(fuse3) #(6, 256, 20, 76)
@@ -236,7 +238,8 @@ class ACNet(nn.Module):
         x = x + self.agant0(fuse0) #(6, 64, 160, 608)
         # final
         x = self.final_conv(x) #(6, 64, 160, 608)
-        out = self.final_deconv(x) #(6, 40, 320, 1216)
+        # out = self.final_deconv(x) #(6, 40, 320, 1216)
+        out = self.final_deconv1(x)
         #
         # if self.training:
         #     # return out, out2, out3, out4, out5
