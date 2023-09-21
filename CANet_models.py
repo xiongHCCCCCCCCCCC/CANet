@@ -193,13 +193,13 @@ class ACNet(nn.Module):
         m = self.layer4_m(m3) # (6, 2048, 10, 38)
 
         if self.pcca5:
-            rgb_down = self.conv_5a(rgb)
-            depth_down = self.conv_5c(depth)
+            rgb_down = self.conv_5a(rgb) # (b, 512, 10, 38)
+            depth_down = self.conv_5c(depth) # (b, 512, 10, 38)
             attention_position = self.pca_5(rgb_down, depth_down) # (b, 512, 10, 38)
             attention_channel = self.cca_5(rgb_down, depth_down) # (b, 512, 10, 38)
-            p_out = self.pconv_5(attention_position)
-            c_out = self.cconv_5(attention_channel)
-            m4 = self.split_conv(m, p_out, c_out)
+            p_out = self.pconv_5(attention_position) # (b, 1024, 10, 38)
+            c_out = self.cconv_5(attention_channel) # (b, 1024, 10, 38)
+            m4 = self.split_conv(m, p_out, c_out) # (b, 2048, 10, 38)
 
             """
             smooth_p = self.pconv_5(attention_position)
