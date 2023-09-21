@@ -23,6 +23,9 @@ from utils.utils import print_log
 from utils.utils import MaskedMSELoss
 from torch.optim.lr_scheduler import LambdaLR
 from dataloaders.kitti_loader import KittiDepth
+import vis_utils
+from metrics import AverageMeter, Result
+import helper
 
 input_options = ['d', 'rgb', 'rgbd', 'g', 'gd']
 
@@ -170,6 +173,15 @@ def train():
     lr_decay_lambda = lambda epoch: args.lr_decay_rate ** (epoch // args.lr_epoch_per_decay)
     scheduler = LambdaLR(optimizer, lr_lambda=lr_decay_lambda)
 
+    block_average_meter = AverageMeter()
+    block_average_meter.reset(False)
+    average_meter = AverageMeter()
+    meters = [block_average_meter, average_meter]
+
+    logger = helper.logger(args)
+
+    mode = "train"
+
     for epoch in range(int(args.start_epoch), args.epochs):
 
         scheduler.step(epoch)
@@ -180,17 +192,26 @@ def train():
             save_ckpt(args.ckpt_dir, model, optimizer, global_step, epoch,
                       local_count, num_train)
 
+        depth_loss, photometric_loss = 0, 0
+
         for batch_idx, sample in enumerate(train_loader):
 
+            start_time = time.time()
             image = sample['rgb'].to(device)
             depth = sample['d'].to(device)
             groundTruth = sample['gt'].to(device)
 
-            optimizer.zero_grad()
-            pred = model(image, depth, args.checkpoint)
+            data_time = time.time() - start_time
 
-            loss = depth_criterion(pred, groundTruth)
-            loss.backward()
+            optimizer.zero_grad()
+
+            start_time = time.time()
+            pred = model(image, depth, args.checkpoint)
+            gpu_time = time.time() - start_time
+
+
+            depth_loss = depth_criterion(pred, groundTruth)
+            depth_loss.backward()
             optimizer.step()
 
             local_count += image.data.shape[0]  #local_count 记录图片数量
@@ -208,7 +229,25 @@ def train():
                 end_time = time.time()
                 last_count = local_count
 
-        save_ckpt(args.ckpt_dir, model, optimizer, global_step, epoch, 0, num_train)
+            with torch.no_grad():
+                mini_batch_size = next(iter(sample.values())).size(0)
+                result = Result()
+
+                result.evaluate(pred.data, groundTruth.data, photometric_loss)
+                [
+                    m.update(result, gpu_time, data_time, mini_batch_size)
+                    for m in meters
+                ]
+
+                logger.conditional_print(mode, batch_idx, epoch, scheduler.get_lr(), num_train, block_average_meter, average_meter)
+                # logger.conditional_save_img_comparison(mode, batch_idx, sample, pred, epoch)
+                # logger.conditional_save_pred(mode, batch_idx, pred, epoch)
+
+        avg = logger.conditional_save_info(mode, average_meter, epoch)
+        is_best = logger.rank_conditional_save_best(mode, avg, epoch)
+
+        logger.conditional_summarize(mode, avg, is_best)
+        # save_ckpt(args.ckpt_dir, model, optimizer, global_step, epoch, 0, num_train)
 
     print("Training completed ")
 
