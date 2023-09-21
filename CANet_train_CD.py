@@ -36,7 +36,7 @@ parser.add_argument('--cuda', action='store_true', default=False,
                     help='enables CUDA training')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 8)')
-parser.add_argument('--epochs', default=1500, type=int, metavar='N',
+parser.add_argument('--epochs', default=50, type=int, metavar='N',
                     help='number of total epochs to run (default: 1500)')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
@@ -84,6 +84,19 @@ parser.add_argument('--jitter',
                     type=float,
                     default=0.1,
                     help='color jitter for images')
+
+parser.add_argument('-c',
+                    '--criterion',
+                    metavar='LOSS',
+                    default='l2',
+                    choices=['l1', 'l2'],
+                    help='loss function: | '.join(['l1', 'l2']) +
+                    ' (default: l2)')
+parser.add_argument('--resume',
+                    default='',
+                    type=str,
+                    metavar='PATH',
+                    help='path to latest checkpoint (default: none)')
 ###################
 parser.add_argument('--not-random-crop', action="store_true", default=False,
                     help='prohibit random cropping')
@@ -91,6 +104,8 @@ parser.add_argument('-he', '--random-crop-height', default=320, type=int, metava
                     help='random crop height')
 parser.add_argument('-w', '--random-crop-width', default=1216, type=int, metavar='N',
                     help='random crop height')
+
+
 
 args = parser.parse_args()
 device = torch.device("cuda:0" if args.cuda and torch.cuda.is_available() else "cpu")
@@ -102,6 +117,7 @@ args.val_w = 1216
 args.use_rgb = ('rgb' in args.input)
 args.use_d = 'd' in args.input
 args.use_g = 'g' in args.input
+args.result = os.path.join('..', 'results')
 
 def train():
     train_data = KittiDepth('train', args)
@@ -224,7 +240,7 @@ def train():
                 time_inter = time.time() - end_time
                 count_inter = local_count - last_count
 
-                print_log(global_step, epoch, local_count, count_inter, num_train, loss, time_inter)
+                print_log(global_step, epoch, local_count, count_inter, num_train, depth_loss, time_inter)
 
                 end_time = time.time()
                 last_count = local_count
