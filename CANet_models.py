@@ -135,7 +135,7 @@ class ACNet(nn.Module):
             self.cconv_5 = nn.Sequential(nn.Conv2d(512, 1024, kernel_size=1, stride=1, padding=0, bias=False),
                                      nn.BatchNorm2d(1024),
                                      nn.ReLU())
-            self.split_conv = FusionLayer(in_channels=1024, groups=1,radix=2, reduction_factor=4, norm_layer=nn.BatchNorm2d)
+            self.split_conv = FusionLayer(in_channels=1024, groups=1, radix=2, reduction_factor=4, norm_layer=nn.BatchNorm2d)
 
         # weight initial
         for m in self.modules():
@@ -150,50 +150,50 @@ class ACNet(nn.Module):
             self._load_resnet_pretrained()
 
     def encoder(self, rgb, depth):
-        rgb = self.conv1(rgb) # (b, 64, 240, 320)
+        rgb = self.conv1(rgb) # (b, 64, 160, 608)
         rgb = self.bn1(rgb)
         rgb = self.relu(rgb)
-        depth = self.conv1_d(depth) # (b, 64, 240, 320)
+        depth = self.conv1_d(depth) # (b, 64, 160, 608)
         depth = self.bn1_d(depth)
         depth = self.relu_d(depth)
 
-        m0 = rgb + depth # (b, 64, 240, 320)
+        m0 = rgb + depth # (b, 64, 160, 608)
 
-        rgb = self.maxpool(rgb) #（b, 64, 120, 160）
-        depth = self.maxpool_d(depth) #（b, 64, 120, 160）
-        m = self.maxpool(m0) # (b, 64, 120, 160)
+        rgb = self.maxpool(rgb) # (b, 64, 80, 304)
+        depth = self.maxpool_d(depth) # (b, 64, 80, 304)
+        m = self.maxpool(m0) # (b, 64, 80, 304)
 
         # block 1
-        rgb = self.layer1(rgb)
-        depth = self.layer1_d(depth)
-        m = self.layer1_m(m)
+        rgb = self.layer1(rgb) # (b, 256, 80, 304)
+        depth = self.layer1_d(depth) # (b, 256, 80, 304)
+        m = self.layer1_m(m) # (b, 256, 80, 304)
 
         m1 = m + rgb + depth
 
         # block 2
-        rgb = self.layer2(rgb)
-        depth = self.layer2_d(depth)
-        m = self.layer2_m(m1)
+        rgb = self.layer2(rgb) # (b, 512, 40, 152)
+        depth = self.layer2_d(depth) # (b, 512, 40, 152)
+        m = self.layer2_m(m1)# (b, 512, 40, 152)
 
         m2 = m + rgb + depth
 
         # block 3
-        rgb = self.layer3(rgb)
-        depth = self.layer3_d(depth)
-        m = self.layer3_m(m2)
+        rgb = self.layer3(rgb) #(6, 1024, 20, 76)
+        depth = self.layer3_d(depth)#(6, 1024, 20, 76)
+        m = self.layer3_m(m2)#(6, 1024, 20, 76)
 
         m3 = m + rgb + depth
 
         # block 4
-        rgb = self.layer4(rgb)
-        depth = self.layer4_d(depth)
-        m = self.layer4_m(m3)
+        rgb = self.layer4(rgb) # (6, 2048, 10, 38)
+        depth = self.layer4_d(depth) # (6, 2048, 10, 38)
+        m = self.layer4_m(m3) # (6, 2048, 10, 38)
 
         if self.pcca5:
             rgb_down = self.conv_5a(rgb)
             depth_down = self.conv_5c(depth)
-            attention_position = self.pca_5(rgb_down, depth_down)
-            attention_channel = self.cca_5(rgb_down, depth_down)
+            attention_position = self.pca_5(rgb_down, depth_down) # (b, 512, 10, 38)
+            attention_channel = self.cca_5(rgb_down, depth_down) # (b, 512, 10, 38)
             p_out = self.pconv_5(attention_position)
             c_out = self.cconv_5(attention_channel)
             m4 = self.split_conv(m, p_out, c_out)
@@ -211,33 +211,35 @@ class ACNet(nn.Module):
         return m0, m1, m2, m3, m4  # channel of m is 2048
 
     def decoder(self, fuse0, fuse1, fuse2, fuse3, fuse4):
-        agant4 = self.agant4(fuse4)
+        agant4 = self.agant4(fuse4) #(6, 512, 10, 38)
         # upsample 1
-        x = self.deconv1(agant4)
-        if self.training:
-            out5 = self.out5_conv(x)
-        x = x + self.agant3(fuse3)
-        # upsample 2
-        x = self.deconv2(x)
-        if self.training:
-            out4 = self.out4_conv(x)
-        x = x + self.agant2(fuse2)
-        # upsample 3
-        x = self.deconv3(x)
-        if self.training:
-            out3 = self.out3_conv(x)
-        x = x + self.agant1(fuse1)
-        # upsample 4
-        x = self.deconv4(x)
-        if self.training:
-            out2 = self.out2_conv(x)
-        x = x + self.agant0(fuse0)
-        # final
-        x = self.final_conv(x)
-        out = self.final_deconv(x)
+        x = self.deconv1(agant4) #(6, 256, 20, 76)
+
 
         if self.training:
-            return out, out2, out3, out4, out5
+            out5 = self.out5_conv(x) #(6, 40, 20, 76)
+        x = x + self.agant3(fuse3) #(6, 256, 20, 76)
+        # upsample 2
+        x = self.deconv2(x) #(6, 128, 40, 152)
+        if self.training:
+            out4 = self.out4_conv(x) #(6, 40, 40, 152)
+        x = x + self.agant2(fuse2) #(6, 128, 40, 152)
+        # upsample 3
+        x = self.deconv3(x) #(6, 64, 80, 304)
+        if self.training:
+            out3 = self.out3_conv(x) #(6, 40, 80, 304)
+        x = x + self.agant1(fuse1) #(6, 40, 80, 304)
+        # upsample 4
+        x = self.deconv4(x) #(6, 64, 160, 608)
+        if self.training:
+            out2 = self.out2_conv(x) #(6, 64, 160, 608)
+        x = x + self.agant0(fuse0) #(6, 64, 160, 608)
+        # final
+        x = self.final_conv(x) #(6, 64, 160, 608)
+        out = self.final_deconv(x) #(6, 40, 320, 1216)
+        #
+        # if self.training:
+        #     # return out, out2, out3, out4, out5
 
         return out
 

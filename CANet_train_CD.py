@@ -24,23 +24,6 @@ from utils.utils import MaskedMSELoss
 from torch.optim.lr_scheduler import LambdaLR
 from dataloaders.kitti_loader import KittiDepth
 
-# nyuv2_frq = [0.04636878, 0.10907704, 0.152566  , 0.28470833, 0.29572534,
-#        0.42489686, 0.49606689, 0.49985867, 0.45401091, 0.52183679,
-#        0.50204292, 0.74834397, 0.6397011 , 1.00739467, 0.80728748,
-#        1.01140891, 1.09866549, 1.25703345, 0.9408835 , 1.56565388,
-#        1.19434108, 0.69079067, 1.86669642, 1.908     , 1.80942453,
-#        2.72492965, 3.00060817, 2.47616595, 2.44053651, 3.80659652,
-#        3.31090131, 3.9340523 , 3.53262803, 4.14408881, 3.71099056,
-#        4.61082739, 4.78020462, 0.44061509, 0.53504894, 0.21667766]
-nyuv2_frq = []
-weight_path = './data/nyuv2_40class_weight.txt'
-with open(weight_path,'r') as f:
-    context = f.readlines()
-
-for x in context[1:]:
-    x = x.strip().strip('\ufeff')
-    nyuv2_frq.append(float(x))
-
 input_options = ['d', 'rgb', 'rgbd', 'g', 'gd']
 
 parser = argparse.ArgumentParser(description='Complete Depth By Kitti Dataset')
@@ -79,12 +62,12 @@ parser.add_argument('--summary-dir', default='./summary', metavar='DIR',
 parser.add_argument('--checkpoint', action='store_true', default=False,
                     help='Using Pytorch checkpoint or not')
 parser.add_argument('--data-folder',
-                    default='/root/autodl-tmp/KITTI_Depth_Completion',
+                    default='/home/cqjtu/PeNet/dataset/KITTI_Depth_Completion',
                     type=str,
                     metavar='PATH',
                     help='data folder (default: none)')
 parser.add_argument('--data-folder-rgb',
-                    default='/root/autodl-tmp/KITTI_Depth_Completion/raw',
+                    default='/home/cqjtu/PeNet/dataset/KITTI_Depth_Completion/raw',
                     type=str,
                     metavar='PATH',
                     help='data folder rgb (default: none)')
@@ -94,6 +77,17 @@ parser.add_argument('-i',
                     default='rgbd',
                     choices=input_options,
                     help='input: | '.join(input_options))
+parser.add_argument('--jitter',
+                    type=float,
+                    default=0.1,
+                    help='color jitter for images')
+###################
+parser.add_argument('--not-random-crop', action="store_true", default=False,
+                    help='prohibit random cropping')
+parser.add_argument('-he', '--random-crop-height', default=320, type=int, metavar='N',
+                    help='random crop height')
+parser.add_argument('-w', '--random-crop-width', default=1216, type=int, metavar='N',
+                    help='random crop height')
 
 args = parser.parse_args()
 device = torch.device("cuda:0" if args.cuda and torch.cuda.is_available() else "cpu")
@@ -120,9 +114,11 @@ def train():
         model = CANet_models.ACNet(num_class=40, backbone='ResNet-50', pretrained=False, pcca5=True)
     else:
         model = CANet_models.ACNet(num_class=40, backbone='ResNet-50', pretrained=True, pcca5=True)
+
     '''
         Loss Function Init.
     '''
+
     depth_criterion = MaskedMSELoss()
 
     print("==> Loss Function Init Sucessed")
@@ -134,7 +130,6 @@ def train():
     model.to(device)
 
     print("==> Model Init Sucessed")
-
 
     '''
         Optimizer Init
@@ -164,7 +159,7 @@ def train():
         {'params': model.cconv_5.parameters(), 'lr': args.lr * 10},{'params': model.split_conv.parameters(), 'lr': args.lr*10},
     ]
 
-    optimizer = torch.optim.SGD(param_list, lr=args.lr,momentum=args.momentum, weight_decay=args.weight_decay)
+    optimizer = torch.optim.SGD(param_list, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
     print("==> Optimizer Init Sucessed")
     global_step = 0
@@ -174,8 +169,6 @@ def train():
 
     lr_decay_lambda = lambda epoch: args.lr_decay_rate ** (epoch // args.lr_epoch_per_decay)
     scheduler = LambdaLR(optimizer, lr_lambda=lr_decay_lambda)
-
-    # writer = SummaryWriter(args.summary_dir)
 
     for epoch in range(int(args.start_epoch), args.epochs):
 
@@ -189,9 +182,9 @@ def train():
 
         for batch_idx, sample in enumerate(train_loader):
 
-            image = sample['image']
-            depth = sample['depth']
-            groundTruth = sample['gt']
+            image = sample['rgb'].to(device)
+            depth = sample['d'].to(device)
+            groundTruth = sample['gt'].to(device)
 
             optimizer.zero_grad()
             pred = model(image, depth, args.checkpoint)
@@ -211,33 +204,13 @@ def train():
                           num_train, loss, time_inter)
                 end_time = time.time()
 
-
                 '''
                     writer tain info
                 '''
-                # for name, param in model.named_parameters():
-                #     writer.add_histogram(name, param.clone().cpu().data.numpy(), global_step, bins='doane')
-                # grid_image = make_grid(image[:3].clone().cpu().data, 3, normalize=True)
-                # writer.add_image('image', grid_image, global_step)
-                # grid_image = make_grid(depth[:3].clone().cpu().data, 3, normalize=True)
-                # writer.add_image('depth', grid_image, global_step)
-                #
-                # # grid_image = make_grid(utils.color_label(torch.max(pred_scales[0][:3], 1)[1] + 1), 3, normalize=False, range=(0, 255))
-                #
-                # writer.add_image('Predicted label', grid_image, global_step)
-                #
-                # # grid_image = make_grid(utils.color_label(target_scales[0][:3]), 3, normalize=False, range=(0, 255))
-                #
-                # writer.add_image('Groundtruth label', grid_image, global_step)
-                # writer.add_scalar('CrossEntropyLoss', loss.data, global_step=global_step)
-                # writer.add_scalar('Learning rate', scheduler.get_lr()[0], global_step=global_step)
 
                 last_count = local_count
 
                 save_ckpt(args.ckpt_dir, model, optimizer, global_step, epoch, 0, num_train)
-
-    # save_ckpt(args.ckpt_dir, model, optimizer, global_step, args.epochs,
-    #           0, num_train)
 
     print("Training completed ")
 
