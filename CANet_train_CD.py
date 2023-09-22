@@ -97,6 +97,7 @@ parser.add_argument('--resume',
                     type=str,
                     metavar='PATH',
                     help='path to latest checkpoint (default: none)')
+
 ###################
 parser.add_argument('--not-random-crop', action="store_true", default=False,
                     help='prohibit random cropping')
@@ -119,7 +120,7 @@ args.use_d = 'd' in args.input
 args.use_g = 'g' in args.input
 args.result = os.path.join('..', 'results')
 
-def train():
+def train(mode):
     train_data = KittiDepth('train', args)
 
     train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True,
@@ -196,7 +197,6 @@ def train():
 
     logger = helper.logger(args)
 
-    mode = "train"
 
     for epoch in range(int(args.start_epoch), args.epochs):
 
@@ -256,21 +256,91 @@ def train():
                 ]
 
                 logger.conditional_print(mode, batch_idx, epoch, scheduler.get_lr(), num_train, block_average_meter, average_meter)
-                # logger.conditional_save_img_comparison(mode, batch_idx, sample, pred, epoch)
-                # logger.conditional_save_pred(mode, batch_idx, pred, epoch)
+
 
         avg = logger.conditional_save_info(mode, average_meter, epoch)
         is_best = logger.rank_conditional_save_best(mode, avg, epoch)
 
         logger.conditional_summarize(mode, avg, is_best)
-        # save_ckpt(args.ckpt_dir, model, optimizer, global_step, epoch, 0, num_train)
+        save_ckpt(args.ckpt_dir, model, optimizer, global_step, epoch, 0, num_train)
 
     print("Training completed ")
+
+def interference(mode, epoch):
+
+    val_dataset = KittiDepth(mode, args)
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset,
+        batch_size=1,
+        shuffle=False,
+        num_workers = 4,
+        pin_memory=True)  # set batch size to be 1 for validation
+
+    print("\t==> val_loader size:{}".format(len(val_loader)))
+
+    if args.last_ckpt:
+        model = CANet_models.ACNet(num_class=40, backbone='ResNet-50', pretrained=False, pcca5=True)
+    else:
+         return
+
+    print("\t==> success creat model")
+
+    for p in model.parameters():
+        p.requires_grad = False
+
+    if os.path.isfile(args.last_ckpt):
+        load_ckpt(model, None, args.last_ckpt, device)
+        model.eval()
+        model.to(device)
+
+        print("=> success loading checkpoint '{}' ... ".format(args.last_ckpt), end='')
+
+    else:
+        print("input correct checkpoint path.")
+
+    block_average_meter = AverageMeter()
+    block_average_meter.reset(False)
+    average_meter = AverageMeter()
+    meters = [block_average_meter, average_meter]
+
+    logger = helper.logger(args)
+
+    with torch.no_grad():
+        for batch_idx, sample in enumerate(val_loader):
+
+            image = sample['rgb'].to(device)
+            depth = sample['d'].to(device)
+            groundTruth = sample['gt'].to(device)
+
+            pred = model(image, depth)
+
+            mini_batch_size = next(iter(sample.values())).size(0)
+            result = Result()
+
+            result.evaluate(pred.data, groundTruth.data, 0)
+            [
+                m.update(result, 0, 0, mini_batch_size)
+                for m in meters
+            ]
+
+            logger.conditional_print(mode, batch_idx, epoch, 0, len(val_loader), block_average_meter, average_meter)
+            logger.conditional_save_img_comparison(mode, batch_idx, sample, pred, epoch)
+            logger.conditional_save_pred(mode, batch_idx, pred, epoch)
+
+    avg = logger.conditional_save_info(mode, average_meter, epoch)
+    is_best = logger.rank_conditional_save_best(mode, avg, epoch)
+
+    if is_best and not (mode == "train"):
+        logger.save_img_comparison_as_best(mode, epoch)
+    logger.conditional_summarize(mode, avg, is_best)
 
 if __name__ == '__main__':
     if not os.path.exists(args.ckpt_dir):
         os.mkdir(args.ckpt_dir)
     if not os.path.exists(args.summary_dir):
         os.mkdir(args.summary_dir)
-
-    train()
+    mode = 'train'
+    if mode == 'train':
+        train(mode)
+    elif mode == 'eval' or mode == 'test':
+        interference(mode, 0)
